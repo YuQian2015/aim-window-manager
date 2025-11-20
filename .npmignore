@@ -1,0 +1,7 @@
+src/
+public/
+pnpm-lock.yaml
+vite.config.ts
+tsconfig.json
+index.html
+package

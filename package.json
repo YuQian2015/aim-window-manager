@@ -1,0 +1,63 @@
+{
+  "name": "@aim-packages/window-manager",
+  "version": "0.0.1",
+  "description": "Electron Window Manager",
+  "main": "./dist/main.cjs.js",
+  "types": "./dist/index.main.d.ts",
+  "module": "./dist/main.esm.js",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.main.d.ts",
+      "import": "./dist/main.esm.js",
+      "require": "./dist/main.cjs.js"
+    },
+    "./main": {
+      "types": "./dist/index.main.d.ts",
+      "import": "./dist/main.esm.js",
+      "require": "./dist/main.cjs.js"
+    },
+    "./renderer": {
+      "types": "./dist/index.renderer.d.ts",
+      "import": "./dist/renderer.esm.js",
+      "require": "./dist/renderer.cjs.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "main": [
+        "./dist/index.main.d.ts"
+      ],
+      "renderer": [
+        "./dist/index.renderer.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "release": "pnpm build && npm publish --registry=https://registry.npmjs.org/ --access public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.5",
+    "vite-plugin-dts": "^4.5.0"
+  },
+  "peerDependencies": {
+    "electron": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@aim-packages/file-utils": "^0.1.1"
+  }
+}
