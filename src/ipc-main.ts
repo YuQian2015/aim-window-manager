@@ -6,7 +6,7 @@ import { WindowConfig, WindowKey } from './types';
 import { getWindowConfig, listWindowKeys, registerWindowConfig, unregisterWindowConfig } from './window-config';
 import { saveWindowState, WindowState, WindowStateStore } from './window-state-store';
 
-export function init(win: BrowserWindow): void {
+export function initIpcMain(win: BrowserWindow): void {
   ipcMain.handle('screen:size:get', () => {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
     return { width, height };

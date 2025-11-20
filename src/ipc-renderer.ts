@@ -89,14 +89,14 @@ export type WindowIPCType = {
   [K in keyof WindowIPCParams]: (...args: WindowIPCParams[K]['request']) => Promise<WindowIPCParams[K]['response']>;
 };
 
-const newIPC: Record<string, any> = {};
+const newIpc: Record<string, any> = {};
 
 methods.forEach((method) => {
-  newIPC[method] = (...args: WindowIPCParams[typeof method]['request']) => ipcRenderer.invoke(method, ...args);
+  newIpc[method] = (...args: WindowIPCParams[typeof method]['request']) => ipcRenderer.invoke(method, ...args);
 });
 
-export const windowIPC = {
-  ...newIPC
+export const windowIpcRenderer = {
+  ...newIpc
 } as WindowIPCType;
 
 export function onWindowMessage(channel: string, callback: (payload: any) => void): () => void {
