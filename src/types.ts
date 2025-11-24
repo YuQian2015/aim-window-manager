@@ -74,3 +74,28 @@ export interface WindowConfig {
   /** 平台差异化覆盖（仅用于 JSON 配置文件，运行期会根据当前平台合并到配置中） */
   platformOverlays?: Partial<Record<NodeJS.Platform, Partial<WindowConfig & { options: Partial<BrowserWindowConstructorOptions> }>>>;
 }
+
+export type IPCParams<T = void, R = unknown> = {
+  /**
+   * 输入
+   *
+   * @type {T}
+   */
+  request: T;
+  /**
+   * 输出
+   *
+   * @type {R}
+   */
+  response: R;
+};
+
+export type ResParams<T = void> = {
+  success: boolean;
+  data?: T;
+  message?: string;
+};
+
+export type PartialByKey<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
+export type RequiredByKey<T, K extends keyof T> = Omit<T, K> & Required<Pick<T, K>>;
