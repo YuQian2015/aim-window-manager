@@ -7,8 +7,8 @@ import { windowConfigs } from './window-config';
 import { initWindowConfigs } from './window-config';
 import { restoreWindowState, saveWindowState } from './window-state-store';
 
-let SERVER_URL = '';
-let RENDERER_DIST = '';
+let LOAD_URL = '';
+let LOAD_FILE = '';
 
 let ANCHOR_WIDTH = -1;
 let ANCHOR_HEIGHT = -1;
@@ -119,7 +119,7 @@ const caf = (id: number): void => {
 };
 
 // Open DevTools automatically in dev/test environments
-const SHOULD_OPEN_DEVTOOLS = !!SERVER_URL || (process.env.NODE_ENV && process.env.NODE_ENV !== 'production');
+const SHOULD_OPEN_DEVTOOLS = !!LOAD_URL || (process.env.NODE_ENV && process.env.NODE_ENV !== 'production');
 function maybeOpenDevTools(w: BrowserWindow | null): void {
   if (SHOULD_OPEN_DEVTOOLS && w && !w.isDestroyed()) {
     // detach mode avoids overlaying frameless/transparent windows
@@ -161,8 +161,8 @@ export class WindowManager {
       assistantPadding?: number;
       anchorWidth?: number;
       anchorHeight?: number;
-      serverUrl?: string;
-      rendererDist?: string;
+      loadURL?: string;
+      loadFile?: string;
       windowConfigs?: Record<WindowKey, WindowConfig>;
       onBeforeFollowerShow?: () => void;
       onAfterFollowerHide?: () => void;
@@ -177,11 +177,11 @@ export class WindowManager {
     if (options.anchorHeight !== undefined) {
       ANCHOR_HEIGHT = options.anchorHeight;
     }
-    if (options.serverUrl) {
-      SERVER_URL = options.serverUrl;
+    if (options.loadURL) {
+      LOAD_URL = options.loadURL;
     }
-    if (options.rendererDist) {
-      RENDERER_DIST = options.rendererDist;
+    if (options.loadFile) {
+      LOAD_FILE = options.loadFile;
     }
     // 设置初始助手内边距
     if (options.assistantPadding !== undefined) {
@@ -647,10 +647,10 @@ export class WindowManager {
 
   private async loadRoute(w: BrowserWindow, conf: WindowConfig): Promise<void> {
     const hash = typeof conf.routeHash === 'function' ? conf.routeHash() : conf.routeHash;
-    if (SERVER_URL) {
-      await w.loadURL(`${SERVER_URL}#${hash}`);
+    if (LOAD_URL) {
+      await w.loadURL(`${LOAD_URL}#${hash}`);
     } else {
-      const indexHtml = path.join(RENDERER_DIST, 'index.html');
+      const indexHtml = path.join(LOAD_FILE, 'index.html');
       await (w as any).loadFile(indexHtml, { hash });
     }
   }
