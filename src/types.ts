@@ -75,7 +75,7 @@ export interface WindowConfig {
   platformOverlays?: Partial<Record<NodeJS.Platform, Partial<WindowConfig & { options: Partial<BrowserWindowConstructorOptions> }>>>;
 }
 
-export type IPCParams<T = void, R = unknown> = {
+export type IpcParams<T = void, R = unknown> = {
   /**
    * 输入
    *
