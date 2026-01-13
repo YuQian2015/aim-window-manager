@@ -23,6 +23,10 @@ type WindowIpcParams = {
    * 设置窗口是否穿透点击
    */
   'window:click:through': IpcParams<[boolean], boolean>;
+  /**
+   * 切换调试窗口
+   */
+  'window:devtools:toggle': IpcParams<[void], boolean>;
   'window:open': IpcParams<[WindowKey, any?, { sameDisplayAsSender?: boolean }?], boolean>;
   'window:open:ready': IpcParams<[WindowKey], boolean>;
   'window:payload:get': IpcParams<[WindowKey], any>;
@@ -64,6 +68,7 @@ const methods: Array<keyof WindowIpcParams> = [
   'window:size:set',
   'window:size:get',
   'window:click:through',
+  'window:devtools:toggle',
   'window:open',
   'window:open:ready',
   'window:payload:get',

@@ -24,6 +24,20 @@ export function initIpcMain(win: BrowserWindow): void {
     }
   });
 
+  // ---------------- DevTools Toggle -------------
+  ipcMain.handle('window:devtools:toggle', (event: IpcMainInvokeEvent) => {
+    const senderWin = BrowserWindow.fromWebContents(event.sender);
+    if (senderWin) {
+      if (senderWin.webContents.isDevToolsOpened()) {
+        senderWin.webContents.closeDevTools();
+      } else {
+        senderWin.webContents.openDevTools();
+      }
+      return true;
+    }
+    return false;
+  });
+
   // ---------------- window:command (转发给主渲染进程的事件) ---------------
   ipcMain.on('window:command', (_e, action: { type: string; payload?: any }) => {
     if (action.type === 'quit-app') {
