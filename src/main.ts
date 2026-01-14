@@ -498,8 +498,25 @@ export class WindowManager {
     // Auto-center
     this.autoCenter(w, conf);
 
+    // Handle trueFullscreen:真正的全屏模式（覆盖 macOS Dock 和菜单栏）
+    if (conf.trueFullscreen) {
+      try {
+        const display = screen.getPrimaryDisplay();
+        const { x, y, width, height } = display.bounds;
+        // 设置窗口覆盖整个显示器区域
+        w.setBounds({ x, y, width, height });
+        // macOS 使用 simpleFullscreen，其他平台使用 fullscreen
+        if (process.platform === 'darwin') {
+          (w as any).setSimpleFullScreen(true);
+        } else {
+          w.setFullScreen(true);
+        }
+      } catch (error) {
+        console.warn('Failed to set true fullscreen:', error);
+      }
+    }
     // If startMaximized is set, skip manual fillWorkArea adjustments as maximize will handle it
-    if (!conf.startMaximized && conf.fillWorkArea) {
+    else if (!conf.startMaximized && conf.fillWorkArea) {
       try {
         const display = screen.getPrimaryDisplay();
         const { x, y, width, height } = display.workArea;

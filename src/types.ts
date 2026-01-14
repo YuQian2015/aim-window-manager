@@ -20,6 +20,13 @@ export interface WindowConfig {
   autoCenterOn?: 'parent-display' | 'primary-display' | 'none';
   closeOnBlur?: boolean;
   /**
+   * 如果为 true，窗口将使用真正的全屏模式（可覆盖 macOS 的 Dock 和菜单栏）。
+   * - macOS: 使用 simpleFullscreen
+   * - 其他平台: 使用 fullscreen
+   * 默认: false
+   */
+  trueFullscreen?: boolean;
+  /**
    * 如果为 true，当用户尝试关闭窗口（例如点击关闭按钮）时，窗口将被隐藏而不是销毁。
    * 这对于需要保持后台运行或快速重新显示的窗口非常有用。
    * 默认: false
