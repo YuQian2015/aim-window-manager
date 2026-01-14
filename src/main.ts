@@ -451,6 +451,28 @@ export class WindowManager {
       opts.parent = this.mainWindow;
     }
 
+    // Handle trueFullscreen: 真正的全屏模式（覆盖 macOS Dock，不触发系统全屏）
+    if (conf.trueFullscreen) {
+      try {
+        const display = screen.getPrimaryDisplay();
+        const { x, y, width, height } = display.bounds;
+        // 直接在构造选项中设置窗口覆盖整个显示器
+        opts.x = x;
+        opts.y = y;
+        opts.width = width;
+        opts.height = height;
+        // macOS 使用 simpleFullscreen 作为构造选项（不是方法调用）
+        // 其他平台使用 fullscreen 作为构造选项
+        if (process.platform === 'darwin') {
+          (opts as any).simpleFullscreen = true;
+        } else {
+          opts.fullscreen = true;
+        }
+      } catch (error) {
+        console.warn('Failed to configure true fullscreen:', error);
+      }
+    }
+
     const w = new BrowserWindow(opts);
     this.registry.set(key, w);
 
@@ -488,6 +510,14 @@ export class WindowManager {
           }
         }
         w.show();
+        // 对于 trueFullscreen 窗口，设置最高层级以确保覆盖 Dock
+        if (conf.trueFullscreen) {
+          try {
+            w.setAlwaysOnTop(true, 'screen-saver');
+          } catch {
+            //
+          }
+        }
       } catch {
         //
       }
@@ -498,25 +528,9 @@ export class WindowManager {
     // Auto-center
     this.autoCenter(w, conf);
 
-    // Handle trueFullscreen:真正的全屏模式（覆盖 macOS Dock 和菜单栏）
-    if (conf.trueFullscreen) {
-      try {
-        const display = screen.getPrimaryDisplay();
-        const { x, y, width, height } = display.bounds;
-        // 设置窗口覆盖整个显示器区域
-        w.setBounds({ x, y, width, height });
-        // macOS 使用 simpleFullscreen，其他平台使用 fullscreen
-        if (process.platform === 'darwin') {
-          (w as any).setSimpleFullScreen(true);
-        } else {
-          w.setFullScreen(true);
-        }
-      } catch (error) {
-        console.warn('Failed to set true fullscreen:', error);
-      }
-    }
     // If startMaximized is set, skip manual fillWorkArea adjustments as maximize will handle it
-    else if (!conf.startMaximized && conf.fillWorkArea) {
+    // Note: trueFullscreen windows are already configured in constructor options
+    if (!conf.startMaximized && !conf.trueFullscreen && conf.fillWorkArea) {
       try {
         const display = screen.getPrimaryDisplay();
         const { x, y, width, height } = display.workArea;
