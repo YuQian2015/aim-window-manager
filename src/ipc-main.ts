@@ -93,6 +93,15 @@ export function initIpcMain(win: BrowserWindow): void {
     return ((globalThis as any).__lastWindowPayload || {})[key] || null;
   });
 
+  // 清除指定窗口的启动 payload 缓存，防止再次打开时重复触发
+  ipcMain.handle('window:payload:clear', (_e: IpcMainInvokeEvent, key: string) => {
+    const store = (globalThis as any).__lastWindowPayload;
+    if (store && key in store) {
+      delete store[key];
+    }
+    return true;
+  });
+
   ipcMain.handle('window:close', async (_: IpcMainInvokeEvent, key: WindowKey) => {
     if (!win) return false;
     try {
