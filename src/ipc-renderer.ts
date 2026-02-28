@@ -108,3 +108,14 @@ export function onWindowMessage(channel: string, callback: (payload: any) => voi
   ipcRenderer.on(channel, handler);
   return () => ipcRenderer.removeListener(channel, handler);
 }
+
+/**
+ * 监听窗口可见性变化事件
+ * @param callback 回调函数，接收 { visible: boolean, key: WindowKey }
+ * @returns 取消监听函数
+ */
+export function onWindowVisibilityChanged(
+  callback: (data: { visible: boolean; key: WindowKey }) => void
+): () => void {
+  return onWindowMessage('window:visibility-changed', callback);
+}

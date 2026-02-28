@@ -607,25 +607,41 @@ export class WindowManager {
     });
 
     // 在显示/隐藏时处理 hover 监控暂停/恢复，以及确保 macOS 上对齐
-    if (conf.followMain === true) {
-      w.on('show', () => {
+    // 同时向渲染进程发送 visibility-changed 事件
+    w.on('show', () => {
+      // 向渲染进程发送显示事件
+      try {
+        w.webContents.send('window:visibility-changed', { visible: true, key });
+      } catch {
+        //
+      }
+      // 跟随窗口的特殊处理
+      if (conf.followMain === true) {
         // 某些透明跟随窗口显示时需要暂停 hover 监控，避免穿透计算干扰
         if (conf.suspendHoverMonitorOnShow) {
           this.onBeforeFollowerShow?.();
         }
         this.updateFollowerPositions();
-      });
-      w.on('hide', () => {
-        if (conf.suspendHoverMonitorOnShow) {
-          this.onAfterFollowerHide?.();
-        }
-      });
-      w.on('closed', () => {
-        if (conf.suspendHoverMonitorOnShow) {
-          this.onAfterFollowerHide?.();
-        }
-      });
-    }
+      }
+    });
+    w.on('hide', () => {
+      // 向渲染进程发送隐藏事件
+      try {
+        w.webContents.send('window:visibility-changed', { visible: false, key });
+      } catch {
+        //
+      }
+      // 跟随窗口的特殊处理
+      if (conf.followMain === true && conf.suspendHoverMonitorOnShow) {
+        this.onAfterFollowerHide?.();
+      }
+    });
+    w.on('closed', () => {
+      // 跟随窗口的特殊处理
+      if (conf.followMain === true && conf.suspendHoverMonitorOnShow) {
+        this.onAfterFollowerHide?.();
+      }
+    });
 
     // 监听窗口大小和位置变化，保存状态
     if (conf.rememberState) {
