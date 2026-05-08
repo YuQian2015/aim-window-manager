@@ -1,7 +1,7 @@
 import type { BrowserWindowConstructorOptions } from 'electron';
 
 // 跟随窗口位置偏好模式
-export type FollowerPreferMode = 'auto' | 'prefer-right' | 'prefer-left' | 'prefer-bottom' | 'prefer-top' | 'overlap-center';
+export type FollowerPreferMode = 'auto' | 'prefer-right' | 'prefer-left' | 'prefer-bottom' | 'prefer-top' | 'fixed-top' | 'overlap-center';
 
 // 窗口配置的键类型
 export interface CustomWindowKeys { }
@@ -10,43 +10,6 @@ export type WindowKey = keyof CustomWindowKeys | (string & {});
 
 // 跟随窗口位置类型
 export type FollowerSide = 'right' | 'left' | 'bottom' | 'top' | 'overlap';
-
-// 固定窗口位置配置
-export type WindowFixedPositionEdge = 'top' | 'bottom' | 'left' | 'right';
-export type WindowFixedPositionAlign = 'start' | 'center' | 'end';
-export type WindowFixedPositionDisplay = 'primary' | 'main' | 'self';
-
-export interface WindowFixedPositionConfig {
-  /**
-   * 固定到屏幕的哪一侧。
-   */
-  edge: WindowFixedPositionEdge;
-  /**
-   * 沿着固定边的对齐方式。
-   * - top/bottom: 控制横向位置
-   * - left/right: 控制纵向位置
-   * 默认: center
-   */
-  align?: WindowFixedPositionAlign;
-  /**
-   * 与屏幕工作区/屏幕边缘的间距。
-   * 默认: 0
-   */
-  margin?: number;
-  /**
-   * 选择哪个显示器作为固定定位基准。
-   * - primary: 主显示器
-   * - main: 主窗口所在显示器
-   * - self: 当前窗口所在显示器
-   * 默认: primary
-   */
-  display?: WindowFixedPositionDisplay;
-  /**
-   * 是否使用 workArea，避免覆盖 Dock/菜单栏/任务栏。
-   * 默认: true
-   */
-  useWorkArea?: boolean;
-}
 
 export interface WindowConfig {
   routeHash: string | (() => string);
@@ -91,15 +54,10 @@ export interface WindowConfig {
    * - 'prefer-left': 优先左侧
    * - 'prefer-bottom': 优先底部
    * - 'prefer-top': 优先顶部
+   * - 'fixed-top': 固定在主窗口上方并跟随主窗口移动，不自动切换到其他方向
    * - 'overlap-center': 重叠居中
    */
   followerPreferMode?: FollowerPreferMode;
-  /**
-   * 固定窗口位置配置。它独立于 followMain：
-   * - followMain === true 时保持旧的跟随主窗口行为，fixedPosition 不生效
-   * - 需要固定到屏幕顶部/底部/左右侧时，省略 followMain 或设置为 false
-   */
-  fixedPosition?: WindowFixedPositionConfig;
   /**
    * 当使用 overlap-center 模式时，是否启用半透明效果以避免遮挡精灵
    * 默认: false

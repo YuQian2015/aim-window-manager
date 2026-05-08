@@ -2,7 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 
 import { windowManager } from './main';
-import { WindowConfig, WindowFixedPositionConfig, WindowKey } from './types';
+import { WindowConfig, WindowKey } from './types';
 import { getWindowConfig, listWindowKeys, registerWindowConfig, unregisterWindowConfig } from './window-config';
 import { saveWindowState, WindowState, WindowStateStore } from './window-state-store';
 
@@ -130,11 +130,6 @@ export function initIpcMain(win: BrowserWindow): void {
     if (!currentWin) return false;
     if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return false;
     currentWin.setPosition(Math.round(position.x), Math.round(position.y));
-    if (key) {
-      windowManager.updateFixedPositionsManually(key);
-    } else {
-      windowManager.updateFixedPositionsManually();
-    }
     return true;
   });
 
@@ -147,16 +142,6 @@ export function initIpcMain(win: BrowserWindow): void {
       return currentWin.getPosition();
     }
     return [0, 0];
-  });
-
-  ipcMain.handle('window:fixed-position:update', (_: IpcMainInvokeEvent, key?: WindowKey) => {
-    windowManager.updateFixedPositionsManually(key);
-    return true;
-  });
-
-  ipcMain.handle('window:fixed-position:set', (_: IpcMainInvokeEvent, key: WindowKey, fixedPosition: WindowFixedPositionConfig | null) => {
-    windowManager.setWindowFixedPosition(key, fixedPosition);
-    return true;
   });
 
   // ------- Dynamic window config registry IPC -------
@@ -343,11 +328,6 @@ export function initIpcMain(win: BrowserWindow): void {
 
       // 设置窗口大小和位置
       targetWindow.setBounds({ x, y, width: finalWidth, height: finalHeight });
-      if (windowKey === 'main') {
-        windowManager.updateFixedPositionsManually();
-      } else {
-        windowManager.updateFixedPositionsManually(windowKey as any);
-      }
 
       return { success: true, bounds: targetWindow.getBounds() };
     } catch (error) {
