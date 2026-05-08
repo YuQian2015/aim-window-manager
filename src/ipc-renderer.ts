@@ -1,6 +1,6 @@
 import { ipcRenderer } from 'electron';
 
-import type { WindowConfig, IpcParams } from './types';
+import type { WindowConfig, WindowFixedPositionConfig, IpcParams } from './types';
 import type { WindowKey } from './types';
 import type { WindowState } from './window-state-store';
 
@@ -10,6 +10,8 @@ type WindowIpcParams = {
    */
   'window:move': IpcParams<[{ x: number; y: number }, WindowKey?], boolean>;
   'window:position:get': IpcParams<[WindowKey?], [number, number]>;
+  'window:fixed-position:update': IpcParams<[WindowKey?], boolean>;
+  'window:fixed-position:set': IpcParams<[WindowKey, WindowFixedPositionConfig | null], boolean>;
   'screen:size:get': IpcParams<[void], { width: number; height: number }>;
   /**
    * 设置窗口大小
@@ -64,6 +66,8 @@ type WindowIpcParams = {
 const methods: Array<keyof WindowIpcParams> = [
   'window:move',
   'window:position:get',
+  'window:fixed-position:update',
+  'window:fixed-position:set',
   'screen:size:get',
   'window:size:set',
   'window:size:get',

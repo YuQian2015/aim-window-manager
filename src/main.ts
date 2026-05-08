@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { app, BrowserWindow, screen } from 'electron';
 
-import { FollowerPreferMode, FollowerSide, WindowConfig, WindowKey } from './types';
+import { FollowerPreferMode, FollowerSide, WindowConfig, WindowFixedPositionConfig, WindowKey } from './types';
 import { windowConfigs } from './window-config';
 import { initWindowConfigs } from './window-config';
 import { restoreWindowState, saveWindowState } from './window-state-store';
@@ -107,6 +107,60 @@ function computeFollowerPosition(
   return { x: best.x, y: best.y, side: best.side };
 }
 
+function hasFixedPosition(config: WindowConfig | undefined): config is WindowConfig & { fixedPosition: WindowFixedPositionConfig } {
+  return !!config?.fixedPosition && config.followMain !== true;
+}
+
+function normalizeFixedMargin(margin?: number): number {
+  if (typeof margin !== 'number' || !Number.isFinite(margin)) return 0;
+  return Math.max(0, Math.round(margin));
+}
+
+function alignFixedPosition(start: number, size: number, itemSize: number, align: WindowFixedPositionConfig['align'], margin: number): number {
+  switch (align || 'center') {
+    case 'start':
+      return start + margin;
+    case 'end':
+      return start + size - itemSize - margin;
+    case 'center':
+    default:
+      return start + (size - itemSize) / 2;
+  }
+}
+
+function clampFixedPosition(value: number, min: number, max: number): number {
+  if (max < min) return Math.round(min);
+  return Math.round(Math.min(Math.max(value, min), max));
+}
+
+function computeFixedWindowPosition(area: Electron.Rectangle, windowBounds: Electron.Rectangle, config: WindowFixedPositionConfig): { x: number; y: number } {
+  const margin = normalizeFixedMargin(config.margin);
+  const width = Math.max(1, Math.round(windowBounds.width));
+  const height = Math.max(1, Math.round(windowBounds.height));
+  let x = alignFixedPosition(area.x, area.width, width, config.align, margin);
+  let y = alignFixedPosition(area.y, area.height, height, config.align, margin);
+
+  switch (config.edge) {
+    case 'top':
+      y = area.y + margin;
+      break;
+    case 'bottom':
+      y = area.y + area.height - height - margin;
+      break;
+    case 'left':
+      x = area.x + margin;
+      break;
+    case 'right':
+      x = area.x + area.width - width - margin;
+      break;
+  }
+
+  return {
+    x: clampFixedPosition(x, area.x, area.x + area.width - width),
+    y: clampFixedPosition(y, area.y, area.y + area.height - height)
+  };
+}
+
 // Polyfill rAF in main process (Node 没有原生 requestAnimationFrame)
 const hasNativeRaf = typeof (globalThis as any).requestAnimationFrame === 'function';
 const raf = (cb: (ts: number) => void): number => {
@@ -138,6 +192,8 @@ export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
   private preloadPath: string | undefined;
   private followerWindows = new Set<WindowKey>();
+  private fixedPositionWindows = new Set<WindowKey>();
+  private fixedPositionScreenTrackingSetup = false;
   private assistantPadding: number = 100;
   // Track which window opened which (childKey -> opener BrowserWindow)
   private openersByChild = new Map<WindowKey, BrowserWindow>();
@@ -201,14 +257,30 @@ export class WindowManager {
 
     // 监听主窗口移动事件，自动更新跟随窗口位置
     this.setupMainWindowTracking();
+    this.setupFixedPositionTracking();
   }
 
   private setupMainWindowTracking(): void {
     if (!this.mainWindow) return;
 
     // 监听主窗口移动和大小变化
-    this.mainWindow.on('move', () => this.updateFollowerPositions());
-    this.mainWindow.on('resize', () => this.updateFollowerPositions());
+    this.mainWindow.on('move', () => {
+      this.updateFollowerPositions();
+      this.updateFixedPositions();
+    });
+    this.mainWindow.on('resize', () => {
+      this.updateFollowerPositions();
+      this.updateFixedPositions();
+    });
+  }
+
+  private setupFixedPositionTracking(): void {
+    if (this.fixedPositionScreenTrackingSetup) return;
+    const updateFixedPositions = (): void => this.updateFixedPositions();
+    screen.on('display-metrics-changed', updateFixedPositions);
+    screen.on('display-added', updateFixedPositions);
+    screen.on('display-removed', updateFixedPositions);
+    this.fixedPositionScreenTrackingSetup = true;
   }
 
   private updateFollowerPositions(): void {
@@ -223,6 +295,49 @@ export class WindowManager {
         this.repositionFollowerWindow(windowKey, window, mainBounds);
       }
     });
+  }
+
+  private updateFixedPositions(): void {
+    this.fixedPositionWindows.forEach((windowKey) => {
+      this.updateFixedPosition(windowKey);
+    });
+  }
+
+  private updateFixedPosition(windowKey: WindowKey): void {
+    const window = this.get(windowKey);
+    if (!window || window.isDestroyed()) return;
+    this.repositionFixedWindow(windowKey, window);
+  }
+
+  private repositionFixedWindow(windowKey: WindowKey, window: BrowserWindow): void {
+    try {
+      const config = windowConfigs[windowKey];
+      if (!hasFixedPosition(config)) return;
+
+      const display = this.resolveFixedPositionDisplay(config.fixedPosition, window);
+      const area = config.fixedPosition.useWorkArea === false ? display.bounds : display.workArea;
+      const position = computeFixedWindowPosition(area, window.getBounds(), config.fixedPosition);
+      const [currentX, currentY] = window.getPosition();
+      if (currentX !== position.x || currentY !== position.y) {
+        window.setPosition(position.x, position.y);
+      }
+    } catch (error) {
+      console.error('Error repositioning fixed window:', error);
+    }
+  }
+
+  private resolveFixedPositionDisplay(config: WindowFixedPositionConfig, window: BrowserWindow): Electron.Display {
+    try {
+      if (config.display === 'main' && this.mainWindow && !this.mainWindow.isDestroyed()) {
+        return screen.getDisplayMatching(this.mainWindow.getBounds());
+      }
+      if (config.display === 'self') {
+        return screen.getDisplayMatching(window.getBounds());
+      }
+    } catch {
+      //
+    }
+    return screen.getPrimaryDisplay();
   }
 
   private repositionFollowerWindow(windowKey: WindowKey, window: BrowserWindow, mainBounds: Electron.Rectangle): void {
@@ -383,6 +498,9 @@ export class WindowManager {
     }
     try {
       if (!w.isVisible()) {
+        if (hasFixedPosition(conf)) {
+          this.repositionFixedWindow(key, w);
+        }
         if (conf?.preferShowInactive) {
           try {
             w?.showInactive?.();
@@ -480,6 +598,11 @@ export class WindowManager {
     if (conf.followMain === true) {
       this.followerWindows.add(key);
     }
+    if (hasFixedPosition(conf)) {
+      this.fixedPositionWindows.add(key);
+    } else {
+      this.fixedPositionWindows.delete(key);
+    }
 
     // 如果启用了重叠半透明效果，设置窗口透明度
     if (conf.followerPreferMode === 'overlap-center' && conf.enableOverlapTransparency) {
@@ -509,6 +632,9 @@ export class WindowManager {
             //
           }
         }
+        if (hasFixedPosition(conf)) {
+          this.repositionFixedWindow(key, w);
+        }
         w.show();
         // 对于 trueFullscreen 窗口，设置最高层级以确保覆盖 Dock
         if (conf.trueFullscreen) {
@@ -527,6 +653,9 @@ export class WindowManager {
 
     // Auto-center
     this.autoCenter(w, conf);
+    if (hasFixedPosition(conf)) {
+      this.repositionFixedWindow(key, w);
+    }
 
     // If startMaximized is set, skip manual fillWorkArea adjustments as maximize will handle it
     // Note: trueFullscreen windows are already configured in constructor options
@@ -538,6 +667,9 @@ export class WindowManager {
         setTimeout(() => {
           try {
             w.setBounds({ x, y, width, height });
+            if (hasFixedPosition(conf)) {
+              this.repositionFixedWindow(key, w);
+            }
           } catch {
             //
           }
@@ -623,6 +755,9 @@ export class WindowManager {
         }
         this.updateFollowerPositions();
       }
+      if (hasFixedPosition(conf)) {
+        this.repositionFixedWindow(key, w);
+      }
     });
     w.on('hide', () => {
       // 向渲染进程发送隐藏事件
@@ -640,6 +775,24 @@ export class WindowManager {
       // 跟随窗口的特殊处理
       if (conf.followMain === true && conf.suspendHoverMonitorOnShow) {
         this.onAfterFollowerHide?.();
+      }
+    });
+
+    let fixedPositionUpdateTimer: NodeJS.Timeout | null = null;
+    const scheduleFixedPositionUpdate = (): void => {
+      if (!hasFixedPosition(conf)) return;
+      if (fixedPositionUpdateTimer) clearTimeout(fixedPositionUpdateTimer);
+      fixedPositionUpdateTimer = setTimeout(() => {
+        fixedPositionUpdateTimer = null;
+        this.repositionFixedWindow(key, w);
+      }, 16);
+    };
+    w.on('resize', scheduleFixedPositionUpdate);
+    w.on('move', scheduleFixedPositionUpdate);
+    w.on('closed', () => {
+      if (fixedPositionUpdateTimer) {
+        clearTimeout(fixedPositionUpdateTimer);
+        fixedPositionUpdateTimer = null;
       }
     });
 
@@ -662,6 +815,7 @@ export class WindowManager {
       try {
         this.registry.delete(key);
         this.followerWindows.delete(key);
+        this.fixedPositionWindows.delete(key);
         this.lastFollowerSide.delete(key);
         this.stopFollowerAnimation();
       } catch {
@@ -764,6 +918,9 @@ export class WindowManager {
         //
       }
       this.registry.delete(key);
+      this.followerWindows.delete(key);
+      this.fixedPositionWindows.delete(key);
+      this.lastFollowerSide.delete(key);
     }
   }
 
@@ -795,6 +952,11 @@ export class WindowManager {
         //
       }
       try {
+        this.fixedPositionWindows.delete(key);
+      } catch {
+        //
+      }
+      try {
         this.lastFollowerSide.delete(key);
       } catch {
         //
@@ -812,6 +974,10 @@ export class WindowManager {
     const w = this.get(key);
     if (w) {
       try {
+        const conf = windowConfigs[key];
+        if (hasFixedPosition(conf)) {
+          this.repositionFixedWindow(key, w);
+        }
         w.show();
         w.focus();
       } catch {
@@ -857,6 +1023,17 @@ export class WindowManager {
   }
 
   /**
+   * 手动更新固定位置窗口的位置
+   */
+  updateFixedPositionsManually(windowKey?: WindowKey): void {
+    if (windowKey) {
+      this.updateFixedPosition(windowKey);
+      return;
+    }
+    this.updateFixedPositions();
+  }
+
+  /**
    * 添加窗口到跟随列表
    */
   addFollower(windowKey: WindowKey): void {
@@ -883,6 +1060,28 @@ export class WindowManager {
   }
 
   /**
+   * 设置特定窗口的固定位置配置
+   */
+  setWindowFixedPosition(windowKey: WindowKey, fixedPosition: WindowFixedPositionConfig | null): void {
+    const config = windowConfigs[windowKey];
+    if (!config) return;
+
+    if (fixedPosition) {
+      config.fixedPosition = fixedPosition;
+      if (config.followMain !== true) {
+        this.fixedPositionWindows.add(windowKey);
+      } else {
+        this.fixedPositionWindows.delete(windowKey);
+      }
+    } else {
+      delete config.fixedPosition;
+      this.fixedPositionWindows.delete(windowKey);
+    }
+
+    this.updateFixedPosition(windowKey);
+  }
+
+  /**
    * 设置助手内边距
    */
   setAssistantPadding(padding: number): void {
@@ -896,6 +1095,14 @@ export class WindowManager {
   getWindowFollowerPreferMode(windowKey: WindowKey): FollowerPreferMode {
     const config = windowConfigs[windowKey];
     return config?.followerPreferMode || 'prefer-right';
+  }
+
+  /**
+   * 获取特定窗口的固定位置配置
+   */
+  getWindowFixedPosition(windowKey: WindowKey): WindowFixedPositionConfig | undefined {
+    const config = windowConfigs[windowKey];
+    return config?.fixedPosition;
   }
 
   /**
