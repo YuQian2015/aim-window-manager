@@ -394,30 +394,7 @@ export class WindowManager {
     } catch (error) {
       console.warn(`windowManager beforeShow for '${String(key)}' failed`, error);
     }
-    try {
-      if (!w.isVisible()) {
-        if (conf?.preferShowInactive) {
-          try {
-            w?.showInactive?.();
-          } catch {
-            try {
-              w.show();
-            } catch {
-              //
-            }
-          }
-        } else {
-          w.show();
-        }
-      }
-    } catch {
-      //
-    }
-    try {
-      w.focus();
-    } catch {
-      //
-    }
+    this.presentWindow(w, conf);
     return w;
   }
 
@@ -439,11 +416,6 @@ export class WindowManager {
       }
     });
     if (!w || !display) return w;
-    try {
-      w.focus();
-    } catch {
-      //
-    }
     return w;
   }
 
@@ -522,7 +494,7 @@ export class WindowManager {
             //
           }
         }
-        w.show();
+        this.presentWindow(w, conf);
         // 对于 trueFullscreen 窗口，设置最高层级以确保覆盖 Dock
         if (conf.trueFullscreen) {
           try {
@@ -827,8 +799,7 @@ export class WindowManager {
     const w = this.get(key);
     if (w) {
       try {
-        w.show();
-        w.focus();
+        this.presentWindow(w, windowConfigs[key]);
       } catch {
         //
       }
@@ -918,6 +889,31 @@ export class WindowManager {
    */
   getAssistantPadding(): number {
     return this.assistantPadding;
+  }
+
+  private presentWindow(w: BrowserWindow, conf?: WindowConfig): void {
+    try {
+      if (!w.isVisible()) {
+        if (conf?.preferShowInactive) {
+          try {
+            if (typeof w.showInactive === 'function') {
+              w.showInactive();
+            } else {
+              w.show();
+            }
+          } catch {
+            w.show();
+          }
+        } else {
+          w.show();
+        }
+      }
+      if (!conf?.preferShowInactive) {
+        w.focus();
+      }
+    } catch {
+      //
+    }
   }
 
   /**
