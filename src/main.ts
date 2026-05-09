@@ -12,6 +12,7 @@ import {
   WindowAnimationKeyframe,
   WindowAnimationMargin,
   WindowAnimationOrientation,
+  WindowAnimationAnchor,
   WindowAnimationPlaybackResult,
   WindowAnimationPlacement,
   WindowAnimationPoint,
@@ -208,6 +209,7 @@ function readWindowAnimationBounds(window: BrowserWindow): WindowAnimationBounds
 type WindowAnimationResolveContext = {
   mainWindow?: BrowserWindow | null;
   coordinateSpace?: WindowAnimationCoordinateSpace;
+  positionAnchor?: WindowAnimationAnchor;
 };
 
 type WindowAnimationCoordinateTransform = {
@@ -284,19 +286,63 @@ function mapWindowAnimationPoint(point: WindowAnimationPoint | undefined, transf
   };
 }
 
+function getWindowAnimationAnchorOffset(anchor: WindowAnimationAnchor | undefined, bounds: Pick<WindowAnimationBounds, 'width' | 'height'>): WindowAnimationPoint {
+  const width = Math.max(1, Math.round(bounds.width));
+  const height = Math.max(1, Math.round(bounds.height));
+  switch (anchor || 'top-left') {
+    case 'top-left':
+      return { x: 0, y: 0 };
+    case 'top':
+      return { x: width / 2, y: 0 };
+    case 'top-right':
+      return { x: width, y: 0 };
+    case 'left':
+      return { x: 0, y: height / 2 };
+    case 'center':
+      return { x: width / 2, y: height / 2 };
+    case 'right':
+      return { x: width, y: height / 2 };
+    case 'bottom-left':
+      return { x: 0, y: height };
+    case 'bottom':
+      return { x: width / 2, y: height };
+    case 'bottom-right':
+      return { x: width, y: height };
+  }
+}
+
 function resolveWindowAnimationFrame(frame: WindowAnimationKeyframe, fallback: WindowAnimationBounds, context: WindowAnimationResolveContext = {}): WindowAnimationBounds {
   const transform = getWindowAnimationCoordinateTransform(context.coordinateSpace, fallback, context.mainWindow);
+  const width = Number.isFinite(frame.width) ? Math.max(1, Math.round((frame.width as number) * (transform?.sizeMode === 'scale-with-area' ? transform.uniformScale : 1))) : fallback.width;
+  const height = Number.isFinite(frame.height) ? Math.max(1, Math.round((frame.height as number) * (transform?.sizeMode === 'scale-with-area' ? transform.uniformScale : 1))) : fallback.height;
+  const anchorOffset = getWindowAnimationAnchorOffset(context.positionAnchor, { width, height });
+  const anchorX = Number.isFinite(frame.x) ? Math.round(transform ? transform.offsetX + (frame.x as number) * transform.scaleX : (frame.x as number)) : fallback.x + anchorOffset.x;
+  const anchorY = Number.isFinite(frame.y) ? Math.round(transform ? transform.offsetY + (frame.y as number) * transform.scaleY : (frame.y as number)) : fallback.y + anchorOffset.y;
   const bounds = {
-    x: Number.isFinite(frame.x) ? Math.round(transform ? transform.offsetX + (frame.x as number) * transform.scaleX : (frame.x as number)) : fallback.x,
-    y: Number.isFinite(frame.y) ? Math.round(transform ? transform.offsetY + (frame.y as number) * transform.scaleY : (frame.y as number)) : fallback.y,
-    width: Number.isFinite(frame.width)
-      ? Math.max(1, Math.round((frame.width as number) * (transform?.sizeMode === 'scale-with-area' ? transform.uniformScale : 1)))
-      : fallback.width,
-    height: Number.isFinite(frame.height)
-      ? Math.max(1, Math.round((frame.height as number) * (transform?.sizeMode === 'scale-with-area' ? transform.uniformScale : 1)))
-      : fallback.height
+    x: Math.round(anchorX - anchorOffset.x),
+    y: Math.round(anchorY - anchorOffset.y),
+    width,
+    height
   };
   return frame.placement ? resolveWindowAnimationPlacement(bounds, frame.placement, fallback, context.mainWindow) : bounds;
+}
+
+function getWindowAnimationAnchorPoint(bounds: WindowAnimationBounds, anchor?: WindowAnimationAnchor): WindowAnimationPoint {
+  const offset = getWindowAnimationAnchorOffset(anchor, bounds);
+  return {
+    x: bounds.x + offset.x,
+    y: bounds.y + offset.y
+  };
+}
+
+function resolveWindowAnimationBoundsFromAnchorPoint(point: WindowAnimationPoint, size: Pick<WindowAnimationBounds, 'width' | 'height'>, anchor?: WindowAnimationAnchor): WindowAnimationBounds {
+  const offset = getWindowAnimationAnchorOffset(anchor, size);
+  return {
+    x: Math.round(point.x - offset.x),
+    y: Math.round(point.y - offset.y),
+    width: Math.max(1, Math.round(size.width)),
+    height: Math.max(1, Math.round(size.height))
+  };
 }
 
 function normalizeWindowAnimationMargin(margin?: WindowAnimationMargin): Required<Exclude<WindowAnimationMargin, number>> {
@@ -393,6 +439,7 @@ function mapWindowAnimationFrameControls(frame: WindowAnimationKeyframe, transfo
 function selectWindowAnimationTimelineVariant(timeline: WindowAnimationTimeline, startBounds: WindowAnimationBounds, mainWindow?: BrowserWindow | null): {
   frames: WindowAnimationKeyframe[];
   coordinateSpace?: WindowAnimationCoordinateSpace;
+  positionAnchor?: WindowAnimationAnchor;
 } {
   const baseSpace = timeline.coordinateSpace;
   const display = getWindowAnimationDisplay(baseSpace?.display, startBounds, mainWindow);
@@ -401,7 +448,8 @@ function selectWindowAnimationTimelineVariant(timeline: WindowAnimationTimeline,
   const variant = timeline.variants?.[orientation];
   return {
     frames: variant?.keyframes && variant.keyframes.length > 0 ? variant.keyframes : timeline.keyframes || [],
-    coordinateSpace: variant?.coordinateSpace || baseSpace
+    coordinateSpace: variant?.coordinateSpace || baseSpace,
+    positionAnchor: variant?.positionAnchor || timeline.positionAnchor
   };
 }
 
@@ -1234,7 +1282,8 @@ export class WindowManager {
       }
       const resolveContext: WindowAnimationResolveContext = {
         mainWindow: this.mainWindow,
-        coordinateSpace: selectedTimeline.coordinateSpace
+        coordinateSpace: selectedTimeline.coordinateSpace,
+        positionAnchor: selectedTimeline.positionAnchor
       };
       const firstBounds = resolveWindowAnimationFrame(frames[0], startBounds, resolveContext);
       const firstOpacity = Number.isFinite(frames[0].opacity) ? clamp01(frames[0].opacity as number) : previousOpacity;
@@ -1317,12 +1366,15 @@ export class WindowManager {
         const segment = active.segments.find((candidate) => elapsed >= candidate.startsAt && elapsed <= candidate.startsAt + candidate.duration) || active.segments[active.segments.length - 1];
         const localT = segment.duration <= 0 ? 1 : clamp01((elapsed - segment.startsAt) / segment.duration);
         const easedT = applyWindowAnimationEasing(localT, segment.frame.easing);
-        const sampled = sampleWindowAnimationPath(segment.from, segment.to, segment.frame, easedT);
-        const nextBounds: WindowAnimationBounds = {
-          x: Math.round(sampled.x),
-          y: Math.round(sampled.y),
+        const fromAnchor = getWindowAnimationAnchorPoint(segment.from, selectedTimeline.positionAnchor);
+        const toAnchor = getWindowAnimationAnchorPoint(segment.to, selectedTimeline.positionAnchor);
+        const sampled = sampleWindowAnimationPath(fromAnchor, toAnchor, segment.frame, easedT);
+        const nextSize = {
           width: Math.max(1, Math.round(lerp(segment.from.width, segment.to.width, easedT))),
           height: Math.max(1, Math.round(lerp(segment.from.height, segment.to.height, easedT)))
+        };
+        const nextBounds: WindowAnimationBounds = {
+          ...resolveWindowAnimationBoundsFromAnchorPoint(sampled, nextSize, selectedTimeline.positionAnchor)
         };
         const nextOpacity = clamp01(lerp(segment.fromOpacity, segment.toOpacity, easedT));
         active.currentBounds = nextBounds;

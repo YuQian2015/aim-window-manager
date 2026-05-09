@@ -57,7 +57,7 @@ export interface WindowAnimationCoordinateSpace {
    * design-area maps x/y/control points from a design canvas into the target
    * display/work area at playback time.
    * Default: absolute when coordinateSpace is omitted, design-area when present.
-   */
+  */
   type?: WindowAnimationCoordinateSpaceType;
   designArea?: WindowAnimationDesignArea;
   /**
@@ -164,6 +164,11 @@ export interface WindowAnimationKeyframe extends Partial<WindowAnimationBounds> 
 export interface WindowAnimationTimelineVariant {
   keyframes?: WindowAnimationKeyframe[];
   coordinateSpace?: WindowAnimationCoordinateSpace;
+  /**
+   * Window-local point that follows x/y/control points for this variant.
+   * Default: inherited from timeline, then top-left.
+   */
+  positionAnchor?: WindowAnimationAnchor;
 }
 
 export interface WindowAnimationTimeline {
@@ -178,6 +183,13 @@ export interface WindowAnimationTimeline {
    * points. Placement anchors are still resolved semantically.
    */
   coordinateSpace?: WindowAnimationCoordinateSpace;
+  /**
+   * Window-local point that follows x/y/control points.
+   * - top-left keeps historical behavior.
+   * - center makes the window center follow the path.
+   * Default: top-left
+   */
+  positionAnchor?: WindowAnimationAnchor;
   /**
    * Optional orientation-specific authoring tracks. The manager picks one by
    * the target display/work-area shape, then falls back to keyframes.

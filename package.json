@@ -1,6 +1,6 @@
 {
   "name": "@aim-packages/window-manager",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Electron Window Manager",
   "main": "./dist/main.cjs.js",
   "types": "./dist/index.main.d.ts",
