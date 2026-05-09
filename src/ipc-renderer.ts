@@ -1,6 +1,6 @@
 import { ipcRenderer } from 'electron';
 
-import type { WindowConfig, IpcParams } from './types';
+import type { WindowAnimationPlaybackResult, WindowAnimationState, WindowAnimationStopOptions, WindowAnimationTimeline, WindowConfig, IpcParams } from './types';
 import type { WindowKey } from './types';
 import type { WindowState } from './window-state-store';
 
@@ -10,6 +10,9 @@ type WindowIpcParams = {
    */
   'window:move': IpcParams<[{ x: number; y: number }, WindowKey?], boolean>;
   'window:position:get': IpcParams<[WindowKey?], [number, number]>;
+  'window:animation:play': IpcParams<[WindowKey, WindowAnimationTimeline], WindowAnimationPlaybackResult>;
+  'window:animation:stop': IpcParams<[WindowKey, WindowAnimationStopOptions?], WindowAnimationPlaybackResult>;
+  'window:animation:state': IpcParams<[WindowKey?], WindowAnimationState>;
   'screen:size:get': IpcParams<[void], { width: number; height: number }>;
   /**
    * 设置窗口大小
@@ -64,6 +67,9 @@ type WindowIpcParams = {
 const methods: Array<keyof WindowIpcParams> = [
   'window:move',
   'window:position:get',
+  'window:animation:play',
+  'window:animation:stop',
+  'window:animation:state',
   'screen:size:get',
   'window:size:set',
   'window:size:get',

@@ -2,7 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 
 import { windowManager } from './main';
-import { WindowConfig, WindowKey } from './types';
+import { WindowAnimationStopOptions, WindowAnimationTimeline, WindowConfig, WindowKey } from './types';
 import { getWindowConfig, listWindowKeys, registerWindowConfig, unregisterWindowConfig } from './window-config';
 import { saveWindowState, WindowState, WindowStateStore } from './window-state-store';
 
@@ -142,6 +142,18 @@ export function initIpcMain(win: BrowserWindow): void {
       return currentWin.getPosition();
     }
     return [0, 0];
+  });
+
+  ipcMain.handle('window:animation:play', async (_: IpcMainInvokeEvent, key: WindowKey, timeline: WindowAnimationTimeline) => {
+    return windowManager.playWindowAnimation(key, timeline);
+  });
+
+  ipcMain.handle('window:animation:stop', (_: IpcMainInvokeEvent, key: WindowKey, options?: WindowAnimationStopOptions) => {
+    return windowManager.stopWindowAnimation(key, options);
+  });
+
+  ipcMain.handle('window:animation:state', (_: IpcMainInvokeEvent, key?: WindowKey) => {
+    return windowManager.getWindowAnimationState(key);
   });
 
   // ------- Dynamic window config registry IPC -------

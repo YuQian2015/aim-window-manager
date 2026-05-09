@@ -2,7 +2,25 @@ import path from 'node:path';
 
 import { app, BrowserWindow, screen } from 'electron';
 
-import { FollowerPreferMode, FollowerSide, WindowConfig, WindowKey } from './types';
+import {
+  FollowerPreferMode,
+  FollowerSide,
+  WindowAnimationBounds,
+  WindowAnimationCoordinateSpace,
+  WindowAnimationDisplay,
+  WindowAnimationEasing,
+  WindowAnimationKeyframe,
+  WindowAnimationMargin,
+  WindowAnimationOrientation,
+  WindowAnimationPlaybackResult,
+  WindowAnimationPlacement,
+  WindowAnimationPoint,
+  WindowAnimationState,
+  WindowAnimationStopOptions,
+  WindowAnimationTimeline,
+  WindowConfig,
+  WindowKey
+} from './types';
 import { windowConfigs } from './window-config';
 import { initWindowConfigs } from './window-config';
 import { restoreWindowState, saveWindowState } from './window-state-store';
@@ -116,6 +134,304 @@ function computeFollowerPosition(
   return { x: best.x, y: best.y, side: best.side };
 }
 
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(Math.max(value, 0), 1);
+}
+
+function lerp(from: number, to: number, t: number): number {
+  return from + (to - from) * t;
+}
+
+function applyWindowAnimationEasing(t: number, easing?: WindowAnimationEasing): number {
+  const v = clamp01(t);
+  switch (easing || 'ease-in-out') {
+    case 'linear':
+      return v;
+    case 'ease-in':
+    case 'ease-in-quad':
+      return v * v;
+    case 'ease-out':
+    case 'ease-out-quad':
+      return 1 - (1 - v) * (1 - v);
+    case 'ease-in-out':
+    case 'ease-in-out-quad':
+      return v < 0.5 ? 2 * v * v : 1 - Math.pow(-2 * v + 2, 2) / 2;
+    case 'ease-in-cubic':
+      return v * v * v;
+    case 'ease-out-cubic':
+      return 1 - Math.pow(1 - v, 3);
+    case 'ease-in-out-cubic':
+      return v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2;
+    default:
+      return v;
+  }
+}
+
+function sampleWindowAnimationPath(from: WindowAnimationPoint, to: WindowAnimationPoint, frame: WindowAnimationKeyframe, t: number): WindowAnimationPoint {
+  const p = clamp01(t);
+  if (frame.curve === 'quadratic' && frame.control1) {
+    const u = 1 - p;
+    return {
+      x: u * u * from.x + 2 * u * p * frame.control1.x + p * p * to.x,
+      y: u * u * from.y + 2 * u * p * frame.control1.y + p * p * to.y
+    };
+  }
+  if (frame.curve === 'cubic' && frame.control1 && frame.control2) {
+    const u = 1 - p;
+    return {
+      x: u * u * u * from.x + 3 * u * u * p * frame.control1.x + 3 * u * p * p * frame.control2.x + p * p * p * to.x,
+      y: u * u * u * from.y + 3 * u * u * p * frame.control1.y + 3 * u * p * p * frame.control2.y + p * p * p * to.y
+    };
+  }
+  return {
+    x: lerp(from.x, to.x, p),
+    y: lerp(from.y, to.y, p)
+  };
+}
+
+function normalizeWindowAnimationDuration(duration?: number): number {
+  if (typeof duration !== 'number' || !Number.isFinite(duration)) return 300;
+  return Math.max(0, Math.round(duration));
+}
+
+function readWindowAnimationBounds(window: BrowserWindow): WindowAnimationBounds {
+  const bounds = window.getBounds();
+  return {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.max(1, Math.round(bounds.width)),
+    height: Math.max(1, Math.round(bounds.height))
+  };
+}
+
+type WindowAnimationResolveContext = {
+  mainWindow?: BrowserWindow | null;
+  coordinateSpace?: WindowAnimationCoordinateSpace;
+};
+
+type WindowAnimationCoordinateTransform = {
+  area: Electron.Rectangle;
+  scaleX: number;
+  scaleY: number;
+  uniformScale: number;
+  offsetX: number;
+  offsetY: number;
+  sizeMode: 'absolute' | 'scale-with-area';
+};
+
+function getWindowAnimationDisplay(display: WindowAnimationDisplay | undefined, fallback: WindowAnimationBounds, mainWindow?: BrowserWindow | null): Electron.Display {
+  if (display === 'primary') {
+    return screen.getPrimaryDisplay();
+  }
+  const point =
+    display === 'main' && mainWindow && !mainWindow.isDestroyed()
+      ? (() => {
+          const bounds = mainWindow.getBounds();
+          return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+        })()
+      : { x: fallback.x + fallback.width / 2, y: fallback.y + fallback.height / 2 };
+  return screen.getDisplayNearestPoint(point);
+}
+
+function getWindowAnimationArea(display: Electron.Display, useWorkArea?: boolean): Electron.Rectangle {
+  return useWorkArea === false ? display.bounds : display.workArea;
+}
+
+function getWindowAnimationCoordinateTransform(space: WindowAnimationCoordinateSpace | undefined, fallback: WindowAnimationBounds, mainWindow?: BrowserWindow | null): WindowAnimationCoordinateTransform | null {
+  if (!space || space.type === 'absolute') return null;
+  const designWidth = Number.isFinite(space.designArea?.width) ? Math.max(1, space.designArea!.width) : 0;
+  const designHeight = Number.isFinite(space.designArea?.height) ? Math.max(1, space.designArea!.height) : 0;
+  if (designWidth <= 0 || designHeight <= 0) return null;
+
+  const display = getWindowAnimationDisplay(space.display, fallback, mainWindow);
+  const area = getWindowAnimationArea(display, space.useWorkArea);
+  const rawScaleX = area.width / designWidth;
+  const rawScaleY = area.height / designHeight;
+  const fitMode = space.fitMode || 'contain';
+
+  if (fitMode === 'stretch') {
+    return {
+      area,
+      scaleX: rawScaleX,
+      scaleY: rawScaleY,
+      uniformScale: Math.min(rawScaleX, rawScaleY),
+      offsetX: area.x,
+      offsetY: area.y,
+      sizeMode: space.sizeMode || 'absolute'
+    };
+  }
+
+  const uniformScale = fitMode === 'cover' ? Math.max(rawScaleX, rawScaleY) : Math.min(rawScaleX, rawScaleY);
+  const mappedWidth = designWidth * uniformScale;
+  const mappedHeight = designHeight * uniformScale;
+  return {
+    area,
+    scaleX: uniformScale,
+    scaleY: uniformScale,
+    uniformScale,
+    offsetX: area.x + (area.width - mappedWidth) / 2,
+    offsetY: area.y + (area.height - mappedHeight) / 2,
+    sizeMode: space.sizeMode || 'absolute'
+  };
+}
+
+function mapWindowAnimationPoint(point: WindowAnimationPoint | undefined, transform: WindowAnimationCoordinateTransform | null): WindowAnimationPoint | undefined {
+  if (!point || !transform) return point;
+  return {
+    x: Math.round(transform.offsetX + point.x * transform.scaleX),
+    y: Math.round(transform.offsetY + point.y * transform.scaleY)
+  };
+}
+
+function resolveWindowAnimationFrame(frame: WindowAnimationKeyframe, fallback: WindowAnimationBounds, context: WindowAnimationResolveContext = {}): WindowAnimationBounds {
+  const transform = getWindowAnimationCoordinateTransform(context.coordinateSpace, fallback, context.mainWindow);
+  const bounds = {
+    x: Number.isFinite(frame.x) ? Math.round(transform ? transform.offsetX + (frame.x as number) * transform.scaleX : (frame.x as number)) : fallback.x,
+    y: Number.isFinite(frame.y) ? Math.round(transform ? transform.offsetY + (frame.y as number) * transform.scaleY : (frame.y as number)) : fallback.y,
+    width: Number.isFinite(frame.width)
+      ? Math.max(1, Math.round((frame.width as number) * (transform?.sizeMode === 'scale-with-area' ? transform.uniformScale : 1)))
+      : fallback.width,
+    height: Number.isFinite(frame.height)
+      ? Math.max(1, Math.round((frame.height as number) * (transform?.sizeMode === 'scale-with-area' ? transform.uniformScale : 1)))
+      : fallback.height
+  };
+  return frame.placement ? resolveWindowAnimationPlacement(bounds, frame.placement, fallback, context.mainWindow) : bounds;
+}
+
+function normalizeWindowAnimationMargin(margin?: WindowAnimationMargin): Required<Exclude<WindowAnimationMargin, number>> {
+  if (typeof margin === 'number' && Number.isFinite(margin)) {
+    const value = Math.round(margin);
+    return { x: value, y: value, top: value, right: value, bottom: value, left: value };
+  }
+  const source = margin && typeof margin === 'object' ? margin : {};
+  const x = Number.isFinite(source.x) ? Math.round(source.x as number) : 0;
+  const y = Number.isFinite(source.y) ? Math.round(source.y as number) : 0;
+  return {
+    x,
+    y,
+    top: Number.isFinite(source.top) ? Math.round(source.top as number) : y,
+    right: Number.isFinite(source.right) ? Math.round(source.right as number) : x,
+    bottom: Number.isFinite(source.bottom) ? Math.round(source.bottom as number) : y,
+    left: Number.isFinite(source.left) ? Math.round(source.left as number) : x
+  };
+}
+
+function resolveWindowAnimationPlacement(bounds: WindowAnimationBounds, placement: WindowAnimationPlacement, fallback: WindowAnimationBounds, mainWindow?: BrowserWindow | null): WindowAnimationBounds {
+  const display = getWindowAnimationDisplay(placement.display, fallback, mainWindow);
+  const area = getWindowAnimationArea(display, placement.useWorkArea);
+  const margin = normalizeWindowAnimationMargin(placement.margin);
+  const offsetX = Number.isFinite(placement.offset?.x) ? Math.round(placement.offset?.x as number) : 0;
+  const offsetY = Number.isFinite(placement.offset?.y) ? Math.round(placement.offset?.y as number) : 0;
+  const width = Math.max(1, Math.round(bounds.width));
+  const height = Math.max(1, Math.round(bounds.height));
+  const left = area.x + margin.left;
+  const right = area.x + area.width - width - margin.right;
+  const top = area.y + margin.top;
+  const bottom = area.y + area.height - height - margin.bottom;
+  const centerX = area.x + (area.width - width) / 2;
+  const centerY = area.y + (area.height - height) / 2;
+
+  let x = bounds.x;
+  let y = bounds.y;
+  switch (placement.anchor) {
+    case 'top-left':
+      x = left;
+      y = top;
+      break;
+    case 'top':
+      x = centerX;
+      y = top;
+      break;
+    case 'top-right':
+      x = right;
+      y = top;
+      break;
+    case 'left':
+      x = left;
+      y = centerY;
+      break;
+    case 'center':
+      x = centerX;
+      y = centerY;
+      break;
+    case 'right':
+      x = right;
+      y = centerY;
+      break;
+    case 'bottom-left':
+      x = left;
+      y = bottom;
+      break;
+    case 'bottom':
+      x = centerX;
+      y = bottom;
+      break;
+    case 'bottom-right':
+      x = right;
+      y = bottom;
+      break;
+  }
+
+  return {
+    x: Math.round(x + offsetX),
+    y: Math.round(y + offsetY),
+    width,
+    height
+  };
+}
+
+function mapWindowAnimationFrameControls(frame: WindowAnimationKeyframe, transform: WindowAnimationCoordinateTransform | null): WindowAnimationKeyframe {
+  if (!transform) return frame;
+  return {
+    ...frame,
+    control1: mapWindowAnimationPoint(frame.control1, transform),
+    control2: mapWindowAnimationPoint(frame.control2, transform)
+  };
+}
+
+function selectWindowAnimationTimelineVariant(timeline: WindowAnimationTimeline, startBounds: WindowAnimationBounds, mainWindow?: BrowserWindow | null): {
+  frames: WindowAnimationKeyframe[];
+  coordinateSpace?: WindowAnimationCoordinateSpace;
+} {
+  const baseSpace = timeline.coordinateSpace;
+  const display = getWindowAnimationDisplay(baseSpace?.display, startBounds, mainWindow);
+  const area = getWindowAnimationArea(display, baseSpace?.useWorkArea);
+  const orientation: WindowAnimationOrientation = area.width >= area.height ? 'landscape' : 'portrait';
+  const variant = timeline.variants?.[orientation];
+  return {
+    frames: variant?.keyframes && variant.keyframes.length > 0 ? variant.keyframes : timeline.keyframes || [],
+    coordinateSpace: variant?.coordinateSpace || baseSpace
+  };
+}
+
+function hasWindowAnimationKeyframes(timeline: WindowAnimationTimeline): boolean {
+  if (Array.isArray(timeline.keyframes) && timeline.keyframes.length > 0) return true;
+  return Boolean(timeline.variants?.landscape?.keyframes?.length || timeline.variants?.portrait?.keyframes?.length);
+}
+
+function clampWindowAnimationBounds(bounds: WindowAnimationBounds): WindowAnimationBounds {
+  const display = screen.getDisplayNearestPoint({ x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 });
+  const work = display.workArea;
+  const width = Math.min(bounds.width, work.width);
+  const height = Math.min(bounds.height, work.height);
+  return {
+    x: Math.round(Math.min(Math.max(bounds.x, work.x), work.x + work.width - width)),
+    y: Math.round(Math.min(Math.max(bounds.y, work.y), work.y + work.height - height)),
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height))
+  };
+}
+
+function applyWindowAnimationBounds(window: BrowserWindow, bounds: WindowAnimationBounds): void {
+  window.setBounds({
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.max(1, Math.round(bounds.width)),
+    height: Math.max(1, Math.round(bounds.height))
+  });
+}
+
 // Polyfill rAF in main process (Node 没有原生 requestAnimationFrame)
 const hasNativeRaf = typeof (globalThis as any).requestAnimationFrame === 'function';
 const raf = (cb: (ts: number) => void): number => {
@@ -159,6 +475,28 @@ export class WindowManager {
   private followerAnimTo: { x: number; y: number } | null = null;
   private followerAnimDur = 0;
   private lastFollowerSide = new Map<WindowKey, FollowerSide | null>();
+  private windowAnimations = new Map<
+    WindowKey,
+    {
+      animationId: string;
+      rafId: number | null;
+      startedAt: number;
+      durationMs: number;
+      timeline: WindowAnimationTimeline;
+      segments: Array<{
+        from: WindowAnimationBounds;
+        to: WindowAnimationBounds;
+        duration: number;
+        startsAt: number;
+        frame: WindowAnimationKeyframe;
+        fromOpacity: number;
+        toOpacity: number;
+      }>;
+      currentBounds: WindowAnimationBounds;
+      currentOpacity: number;
+    }
+  >();
+  private suspendedFollowerAnimations = new Set<WindowKey>();
   // Callbacks to control hover monitor from handlers
   private onBeforeFollowerShow?: () => void;
   private onAfterFollowerHide?: () => void;
@@ -231,6 +569,7 @@ export class WindowManager {
 
     // 更新所有跟随窗口的位置
     this.followerWindows.forEach((windowKey) => {
+      if (this.suspendedFollowerAnimations.has(windowKey)) return;
       const window = this.get(windowKey);
       if (window && !window.isDestroyed()) {
         this.repositionFollowerWindow(windowKey, window, mainBounds);
@@ -356,6 +695,9 @@ export class WindowManager {
   }
 
   get(key: WindowKey): BrowserWindow | null {
+    if (key === 'main') {
+      return this.mainWindow && !this.mainWindow.isDestroyed() ? this.mainWindow : null;
+    }
     const w = this.registry.get(key);
     return w && !w.isDestroyed() ? w : null;
   }
@@ -645,6 +987,7 @@ export class WindowManager {
     // Auto-close registry cleanup
     w.on('closed', () => {
       try {
+        this.stopWindowAnimation(key);
         this.registry.delete(key);
         this.followerWindows.delete(key);
         this.lastFollowerSide.delete(key);
@@ -741,6 +1084,7 @@ export class WindowManager {
   }
 
   async destroy(key: WindowKey): Promise<void> {
+    this.stopWindowAnimation(key);
     const w = this.get(key);
     if (w) {
       try {
@@ -765,6 +1109,7 @@ export class WindowManager {
       if (excludeSet.has(key)) continue;
       try {
         if (w && !w.isDestroyed()) {
+          this.stopWindowAnimation(key);
           w.destroy();
         }
       } catch {
@@ -790,6 +1135,11 @@ export class WindowManager {
     // 停止可能残留的动画
     try {
       this.stopFollowerAnimation();
+    } catch {
+      //
+    }
+    try {
+      this.stopAllWindowAnimations();
     } catch {
       //
     }
@@ -820,6 +1170,7 @@ export class WindowManager {
   }
 
   async close(key: WindowKey): Promise<BrowserWindow | null> {
+    this.stopWindowAnimation(key);
     const w = this.get(key);
     if (w) {
       try {
@@ -840,6 +1191,247 @@ export class WindowManager {
    */
   updateFollowerPositionsManually(): void {
     this.updateFollowerPositions();
+  }
+
+  async playWindowAnimation(windowKey: WindowKey, timeline: WindowAnimationTimeline): Promise<WindowAnimationPlaybackResult> {
+    try {
+      let window = this.get(windowKey);
+      if (!window && timeline.createIfMissing) {
+        window = await this.create(windowKey);
+      }
+      if (!window || window.isDestroyed()) {
+        return { ok: false, error: `Window '${String(windowKey)}' not found` };
+      }
+      if (!timeline || !hasWindowAnimationKeyframes(timeline)) {
+        return { ok: false, error: 'Window animation requires at least one keyframe' };
+      }
+
+      this.stopWindowAnimation(windowKey);
+
+      const config = windowConfigs[windowKey];
+      if (timeline.showBeforePlay !== false) {
+        this.presentWindow(window, config);
+      }
+
+      if (config?.followMain === true && timeline.suspendFollowMainDuringPlay !== false) {
+        this.suspendedFollowerAnimations.add(windowKey);
+      }
+
+      const startBounds = readWindowAnimationBounds(window);
+      let previousBounds = startBounds;
+      let previousOpacity = (() => {
+        try {
+          return window.getOpacity();
+        } catch {
+          return 1;
+        }
+      })();
+
+      const selectedTimeline = selectWindowAnimationTimelineVariant(timeline, startBounds, this.mainWindow);
+      const frames = selectedTimeline.frames;
+      if (!Array.isArray(frames) || frames.length === 0) {
+        return { ok: false, error: 'Window animation requires at least one keyframe' };
+      }
+      const resolveContext: WindowAnimationResolveContext = {
+        mainWindow: this.mainWindow,
+        coordinateSpace: selectedTimeline.coordinateSpace
+      };
+      const firstBounds = resolveWindowAnimationFrame(frames[0], startBounds, resolveContext);
+      const firstOpacity = Number.isFinite(frames[0].opacity) ? clamp01(frames[0].opacity as number) : previousOpacity;
+      let currentBounds = timeline.clampToWorkArea ? clampWindowAnimationBounds(firstBounds) : firstBounds;
+      let currentOpacity = firstOpacity;
+      applyWindowAnimationBounds(window, currentBounds);
+      try {
+        window.setOpacity(currentOpacity);
+      } catch {
+        //
+      }
+      previousBounds = currentBounds;
+      previousOpacity = currentOpacity;
+
+      const segments: Array<{
+        from: WindowAnimationBounds;
+        to: WindowAnimationBounds;
+        duration: number;
+        startsAt: number;
+        frame: WindowAnimationKeyframe;
+        fromOpacity: number;
+        toOpacity: number;
+      }> = [];
+      let durationMs = 0;
+
+      for (let i = 1; i < frames.length; i++) {
+        const frame = frames[i];
+        const transform = getWindowAnimationCoordinateTransform(selectedTimeline.coordinateSpace, previousBounds, this.mainWindow);
+        const resolvedFrame = resolveWindowAnimationFrame(frame, previousBounds, resolveContext);
+        const to = timeline.clampToWorkArea ? clampWindowAnimationBounds(resolvedFrame) : resolvedFrame;
+        const toOpacity = Number.isFinite(frame.opacity) ? clamp01(frame.opacity as number) : previousOpacity;
+        const duration = normalizeWindowAnimationDuration(frame.duration);
+        segments.push({
+          from: previousBounds,
+          to,
+          duration,
+          startsAt: durationMs,
+          frame: mapWindowAnimationFrameControls(frame, transform),
+          fromOpacity: previousOpacity,
+          toOpacity
+        });
+        durationMs += duration;
+        previousBounds = to;
+        previousOpacity = toOpacity;
+      }
+
+      const animationId = timeline.id || `${String(windowKey)}:${Date.now()}`;
+      const playback = {
+        animationId,
+        rafId: null as number | null,
+        startedAt: performance.now(),
+        durationMs,
+        timeline: { ...timeline, keyframes: [...timeline.keyframes] },
+        segments,
+        currentBounds,
+        currentOpacity
+      };
+      this.windowAnimations.set(windowKey, playback);
+
+      if (durationMs <= 0 || segments.length === 0) {
+        this.finishWindowAnimation(windowKey, true);
+        return { ok: true, animationId, state: this.getWindowAnimationState(windowKey) };
+      }
+
+      const step = (now: number): void => {
+        const active = this.windowAnimations.get(windowKey);
+        if (!active || active.animationId !== animationId) return;
+        const targetWindow = this.get(windowKey);
+        if (!targetWindow || targetWindow.isDestroyed()) {
+          this.stopWindowAnimation(windowKey);
+          return;
+        }
+
+        const elapsed = Math.max(0, now - active.startedAt);
+        if (elapsed >= active.durationMs) {
+          this.finishWindowAnimation(windowKey, true);
+          return;
+        }
+
+        const segment = active.segments.find((candidate) => elapsed >= candidate.startsAt && elapsed <= candidate.startsAt + candidate.duration) || active.segments[active.segments.length - 1];
+        const localT = segment.duration <= 0 ? 1 : clamp01((elapsed - segment.startsAt) / segment.duration);
+        const easedT = applyWindowAnimationEasing(localT, segment.frame.easing);
+        const sampled = sampleWindowAnimationPath(segment.from, segment.to, segment.frame, easedT);
+        const nextBounds: WindowAnimationBounds = {
+          x: Math.round(sampled.x),
+          y: Math.round(sampled.y),
+          width: Math.max(1, Math.round(lerp(segment.from.width, segment.to.width, easedT))),
+          height: Math.max(1, Math.round(lerp(segment.from.height, segment.to.height, easedT)))
+        };
+        const nextOpacity = clamp01(lerp(segment.fromOpacity, segment.toOpacity, easedT));
+        active.currentBounds = nextBounds;
+        active.currentOpacity = nextOpacity;
+        applyWindowAnimationBounds(targetWindow, timeline.clampToWorkArea ? clampWindowAnimationBounds(nextBounds) : nextBounds);
+        try {
+          targetWindow.setOpacity(nextOpacity);
+        } catch {
+          //
+        }
+        active.rafId = raf(step);
+      };
+
+      playback.rafId = raf(step);
+      return { ok: true, animationId, state: this.getWindowAnimationState(windowKey) };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  }
+
+  stopWindowAnimation(windowKey: WindowKey, options: WindowAnimationStopOptions = {}): WindowAnimationPlaybackResult {
+    const active = this.windowAnimations.get(windowKey);
+    if (!active) {
+      this.suspendedFollowerAnimations.delete(windowKey);
+      return { ok: true, state: this.getWindowAnimationState(windowKey) };
+    }
+    if (active.rafId !== null) {
+      try {
+        caf(active.rafId);
+      } catch {
+        //
+      }
+    }
+    if (options.complete) {
+      const window = this.get(windowKey);
+      const last = active.segments[active.segments.length - 1];
+      if (window && !window.isDestroyed() && last) {
+        applyWindowAnimationBounds(window, last.to);
+        try {
+          window.setOpacity(last.toOpacity);
+        } catch {
+          //
+        }
+        active.currentBounds = last.to;
+        active.currentOpacity = last.toOpacity;
+      }
+    }
+    this.finishWindowAnimation(windowKey, false);
+    return { ok: true, animationId: active.animationId, state: this.getWindowAnimationState(windowKey) };
+  }
+
+  getWindowAnimationState(windowKey?: WindowKey): WindowAnimationState {
+    const key = windowKey || ('main' as WindowKey);
+    const active = this.windowAnimations.get(key);
+    if (!active) {
+      return {
+        active: false,
+        windowKey: key,
+        progress: 0,
+        elapsedMs: 0,
+        durationMs: 0
+      };
+    }
+    const elapsedMs = Math.min(active.durationMs, Math.max(0, performance.now() - active.startedAt));
+    return {
+      active: true,
+      animationId: active.animationId,
+      windowKey: key,
+      progress: active.durationMs <= 0 ? 1 : clamp01(elapsedMs / active.durationMs),
+      elapsedMs: Math.round(elapsedMs),
+      durationMs: active.durationMs,
+      currentBounds: active.currentBounds,
+      currentOpacity: active.currentOpacity
+    };
+  }
+
+  private finishWindowAnimation(windowKey: WindowKey, complete: boolean): void {
+    const active = this.windowAnimations.get(windowKey);
+    if (!active) return;
+    if (active.rafId !== null) {
+      try {
+        caf(active.rafId);
+      } catch {
+        //
+      }
+    }
+    if (complete) {
+      const window = this.get(windowKey);
+      const last = active.segments[active.segments.length - 1];
+      if (window && !window.isDestroyed() && last) {
+        applyWindowAnimationBounds(window, last.to);
+        try {
+          window.setOpacity(last.toOpacity);
+        } catch {
+          //
+        }
+      }
+    }
+    this.windowAnimations.delete(windowKey);
+    this.suspendedFollowerAnimations.delete(windowKey);
+    if (active.timeline.refreshFollowerAfterPlay) {
+      this.updateFollowerPositions();
+    }
+  }
+
+  private stopAllWindowAnimations(): void {
+    Array.from(this.windowAnimations.keys()).forEach((key) => {
+      this.stopWindowAnimation(key);
+    });
   }
 
   /**

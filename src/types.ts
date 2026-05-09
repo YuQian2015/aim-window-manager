@@ -11,6 +11,228 @@ export type WindowKey = keyof CustomWindowKeys | (string & {});
 // 跟随窗口位置类型
 export type FollowerSide = 'right' | 'left' | 'bottom' | 'top' | 'overlap';
 
+export type WindowAnimationEasing =
+  | 'linear'
+  | 'ease-in'
+  | 'ease-out'
+  | 'ease-in-out'
+  | 'ease-in-quad'
+  | 'ease-out-quad'
+  | 'ease-in-out-quad'
+  | 'ease-in-cubic'
+  | 'ease-out-cubic'
+  | 'ease-in-out-cubic';
+
+export type WindowAnimationCurve = 'line' | 'quadratic' | 'cubic';
+
+export type WindowAnimationAnchor =
+  | 'top-left'
+  | 'top'
+  | 'top-right'
+  | 'left'
+  | 'center'
+  | 'right'
+  | 'bottom-left'
+  | 'bottom'
+  | 'bottom-right';
+
+export type WindowAnimationDisplay = 'primary' | 'current' | 'main';
+
+export type WindowAnimationCoordinateSpaceType = 'absolute' | 'design-area';
+
+export type WindowAnimationCoordinateFitMode = 'contain' | 'cover' | 'stretch';
+
+export type WindowAnimationSizeMode = 'absolute' | 'scale-with-area';
+
+export type WindowAnimationOrientation = 'landscape' | 'portrait';
+
+export interface WindowAnimationDesignArea {
+  width: number;
+  height: number;
+}
+
+export interface WindowAnimationCoordinateSpace {
+  /**
+   * absolute keeps x/y/control points as desktop pixels.
+   * design-area maps x/y/control points from a design canvas into the target
+   * display/work area at playback time.
+   * Default: absolute when coordinateSpace is omitted, design-area when present.
+   */
+  type?: WindowAnimationCoordinateSpaceType;
+  designArea?: WindowAnimationDesignArea;
+  /**
+   * Display used for design-area mapping.
+   * Default: current
+   */
+  display?: WindowAnimationDisplay;
+  /**
+   * Use Electron display.workArea instead of full display.bounds.
+   * Default: true
+   */
+  useWorkArea?: boolean;
+  /**
+   * contain preserves the design aspect ratio inside the target area.
+   * cover preserves aspect ratio and fills the target area.
+   * stretch maps x/y independently and may distort paths.
+   * Default: contain
+   */
+  fitMode?: WindowAnimationCoordinateFitMode;
+  /**
+   * Keep width/height in desktop pixels by default. Use scale-with-area only
+   * when the window should resize with the coordinate mapping.
+   * Default: absolute
+   */
+  sizeMode?: WindowAnimationSizeMode;
+}
+
+export type WindowAnimationMargin =
+  | number
+  | {
+      x?: number;
+      y?: number;
+      top?: number;
+      right?: number;
+      bottom?: number;
+      left?: number;
+    };
+
+export interface WindowAnimationPlacement {
+  /**
+   * Semantic target on the resolved display/work area. For example:
+   * - right: right edge + vertical center
+   * - top: top edge + horizontal center
+   * - top-left: top-left corner
+   */
+  anchor: WindowAnimationAnchor;
+  /**
+   * Display used to resolve the semantic anchor.
+   * - current: display nearest to the previous keyframe/current window bounds
+   * - main: display containing the manager main window
+   * - primary: OS primary display
+   * Default: current
+   */
+  display?: WindowAnimationDisplay;
+  /**
+   * Use Electron display.workArea instead of full display.bounds.
+   * Default: true
+   */
+  useWorkArea?: boolean;
+  /**
+   * Distance from display/work-area edges. A number applies to every edge.
+   */
+  margin?: WindowAnimationMargin;
+  /**
+   * Additional pixel offset after anchor resolution.
+   */
+  offset?: Partial<WindowAnimationPoint>;
+}
+
+export interface WindowAnimationPoint {
+  x: number;
+  y: number;
+}
+
+export interface WindowAnimationBounds extends WindowAnimationPoint {
+  width: number;
+  height: number;
+}
+
+export interface WindowAnimationKeyframe extends Partial<WindowAnimationBounds> {
+  /**
+   * Semantic placement resolved at playback time. When present, it overrides
+   * x/y while width/height still come from the keyframe or fallback bounds.
+   */
+  placement?: WindowAnimationPlacement;
+  /**
+   * Duration from the previous keyframe to this keyframe.
+   * The first keyframe ignores duration.
+   */
+  duration?: number;
+  easing?: WindowAnimationEasing;
+  /**
+   * Path interpolation from the previous keyframe to this one.
+   * - line: straight line
+   * - quadratic: one absolute control point in control1
+   * - cubic: two absolute control points in control1/control2
+   */
+  curve?: WindowAnimationCurve;
+  control1?: WindowAnimationPoint;
+  control2?: WindowAnimationPoint;
+  opacity?: number;
+}
+
+export interface WindowAnimationTimelineVariant {
+  keyframes?: WindowAnimationKeyframe[];
+  coordinateSpace?: WindowAnimationCoordinateSpace;
+}
+
+export interface WindowAnimationTimeline {
+  id?: string;
+  /**
+   * Absolute desktop/screen keyframes. Missing fields inherit from the
+   * current window bounds or the previous keyframe.
+   */
+  keyframes: WindowAnimationKeyframe[];
+  /**
+   * Optional coordinate mapping for ordinary x/y keyframes and bezier control
+   * points. Placement anchors are still resolved semantically.
+   */
+  coordinateSpace?: WindowAnimationCoordinateSpace;
+  /**
+   * Optional orientation-specific authoring tracks. The manager picks one by
+   * the target display/work-area shape, then falls back to keyframes.
+   */
+  variants?: Partial<Record<WindowAnimationOrientation, WindowAnimationTimelineVariant>>;
+  /**
+   * Create the window from registered config when it is not open yet.
+   * Default: false
+   */
+  createIfMissing?: boolean;
+  /**
+   * Show the window before animation starts.
+   * Default: true
+   */
+  showBeforePlay?: boolean;
+  /**
+   * Clamp animated bounds into the nearest display work area.
+   * Default: false
+   */
+  clampToWorkArea?: boolean;
+  /**
+   * Temporarily pause followMain positioning updates while the animation owns
+   * the window bounds. The follower relationship is restored after playback.
+   * Default: true
+   */
+  suspendFollowMainDuringPlay?: boolean;
+  /**
+   * Immediately refresh followMain position after playback finishes/stops.
+   * Default: false
+   */
+  refreshFollowerAfterPlay?: boolean;
+}
+
+export interface WindowAnimationState {
+  active: boolean;
+  animationId?: string;
+  windowKey?: WindowKey;
+  progress: number;
+  elapsedMs: number;
+  durationMs: number;
+  currentBounds?: WindowAnimationBounds;
+  currentOpacity?: number;
+}
+
+export interface WindowAnimationPlaybackResult {
+  ok: boolean;
+  animationId?: string;
+  state?: WindowAnimationState;
+  error?: string;
+}
+
+export interface WindowAnimationStopOptions {
+  complete?: boolean;
+}
+
 export interface WindowConfig {
   routeHash: string | (() => string);
   options: BrowserWindowConstructorOptions;
