@@ -293,6 +293,13 @@ export interface WindowConfig {
    */
   followerPreferMode?: FollowerPreferMode;
   /**
+   * Whether follower windows should be clamped into the nearest display work area.
+   * Set false when a follower must stay at the authored relative position even if
+   * part of it goes off screen.
+   * Default: true
+   */
+  followerClampToWorkArea?: boolean;
+  /**
    * 当使用 overlap-center 模式时，是否启用半透明效果以避免遮挡精灵
    * 默认: false
    */

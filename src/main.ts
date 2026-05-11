@@ -43,7 +43,8 @@ function computeFollowerPosition(
   follower: { width: number; height: number },
   preferMode?: FollowerPreferMode,
   assistantPadding: number = 100,
-  forceCenterAlignment: boolean = false
+  forceCenterAlignment: boolean = false,
+  clampToWorkArea: boolean = true
 ): { x: number; y: number; side: FollowerSide } {
   const gap = 12;
   const padding = assistantPadding;
@@ -56,6 +57,9 @@ function computeFollowerPosition(
   if (mode === 'fixed-top') {
     const centerX = Math.round(anchor.x + (anchor.width - follower.width) / 2);
     const topY = Math.round(anchor.y - follower.height - gap);
+    if (!clampToWorkArea) {
+      return { x: centerX, y: topY, side: 'top' };
+    }
     const x = Math.min(Math.max(centerX, work.x), work.x + work.width - follower.width);
     const y = Math.min(Math.max(topY, work.y), work.y + work.height - follower.height);
     return { x, y, side: 'top' };
@@ -67,8 +71,8 @@ function computeFollowerPosition(
     const centerX = Math.round(anchor.x + (anchor.width - follower.width) / 2);
     const centerY = Math.round(anchor.y + (anchor.height - follower.height) / 2);
 
-    if (forceCenterAlignment) {
-      // 强制居中，忽略屏幕边界限制
+    if (forceCenterAlignment || !clampToWorkArea) {
+      // 强制居中或显式允许越界时，忽略屏幕边界限制
       return { x: centerX, y: centerY, side: 'overlap' as FollowerSide };
     } else {
       // 确保窗口在屏幕范围内
@@ -106,6 +110,12 @@ function computeFollowerPosition(
 
   for (const b of base) {
     candidates.push({ x: b.x, y: b.y, score: b.baseScore + preferenceBoost(b.side), side: b.side });
+  }
+
+  if (!clampToWorkArea) {
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0];
+    return { x: best.x, y: best.y, side: best.side };
   }
 
   const valid: typeof candidates = [];
@@ -643,12 +653,13 @@ export class WindowManager {
       // 使用窗口特定的跟随偏好模式，如果没有配置则使用默认值
       const preferMode = config.followerPreferMode || 'prefer-right';
       const forceCenterAlignment = config.forceCenterAlignment || false;
+      const clampToWorkArea = config.followerClampToWorkArea !== false;
 
       // 使用智能位置计算逻辑
       const followerSize =
         process.platform === 'darwin' || preferMode === 'overlap-center' ? { width: contentBounds.width, height: contentBounds.height } : { width: windowBounds.width, height: windowBounds.height };
 
-      const position = computeFollowerPosition(mainBounds, followerSize, preferMode, this.assistantPadding, forceCenterAlignment);
+      const position = computeFollowerPosition(mainBounds, followerSize, preferMode, this.assistantPadding, forceCenterAlignment, clampToWorkArea);
 
       const lastSide = this.lastFollowerSide.get(windowKey) || null;
 
