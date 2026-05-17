@@ -1,7 +1,7 @@
 import type { BrowserWindowConstructorOptions } from 'electron';
 
 // 跟随窗口位置偏好模式
-export type FollowerPreferMode = 'auto' | 'prefer-right' | 'prefer-left' | 'prefer-bottom' | 'prefer-top' | 'fixed-top' | 'overlap-center';
+export type FollowerPreferMode = 'auto' | 'prefer-right' | 'prefer-left' | 'prefer-bottom' | 'prefer-top' | 'fixed-top' | 'fixed-bottom' | 'overlap-center';
 
 // 窗口配置的键类型
 export interface CustomWindowKeys { }
@@ -289,6 +289,7 @@ export interface WindowConfig {
    * - 'prefer-bottom': 优先底部
    * - 'prefer-top': 优先顶部
    * - 'fixed-top': 固定在主窗口上方并跟随主窗口移动，不自动切换到其他方向
+   * - 'fixed-bottom': 固定在主窗口下方并跟随主窗口移动，不自动切换到其他方向
    * - 'overlap-center': 重叠居中
    */
   followerPreferMode?: FollowerPreferMode;

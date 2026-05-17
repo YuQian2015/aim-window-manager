@@ -65,6 +65,18 @@ function computeFollowerPosition(
     return { x, y, side: 'top' };
   }
 
+  // fixed-bottom 模式：始终固定在主窗口下方并跟随主窗口移动，不参与自动方向切换
+  if (mode === 'fixed-bottom') {
+    const centerX = Math.round(anchor.x + (anchor.width - follower.width) / 2);
+    const bottomY = Math.round(anchor.y + anchor.height + gap);
+    if (!clampToWorkArea) {
+      return { x: centerX, y: bottomY, side: 'bottom' };
+    }
+    const x = Math.min(Math.max(centerX, work.x), work.x + work.width - follower.width);
+    const y = Math.min(Math.max(bottomY, work.y), work.y + work.height - follower.height);
+    return { x, y, side: 'bottom' };
+  }
+
   // overlap-center 模式：把跟随窗口居中覆盖在助手区域上
   if (mode === 'overlap-center') {
     // 计算助手区域的中心点
