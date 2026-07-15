@@ -13,10 +13,11 @@ export function initIpcMain(win: BrowserWindow): void {
   });
 
   // ---------------- Click Through -------------
-  ipcMain.handle('window:click:through', (_event: IpcMainInvokeEvent, enable: boolean) => {
-    if (!win) return false;
+  ipcMain.handle('window:click:through', (_event: IpcMainInvokeEvent, enable: boolean, key?: WindowKey) => {
+    const targetWindow = key === undefined ? win : windowManager.get(key);
+    if (!targetWindow || targetWindow.isDestroyed()) return false;
     try {
-      win.setIgnoreMouseEvents(!!enable, { forward: true });
+      targetWindow.setIgnoreMouseEvents(!!enable, { forward: true });
       return true;
     } catch (e) {
       console.log(e);
@@ -25,13 +26,13 @@ export function initIpcMain(win: BrowserWindow): void {
   });
 
   // ---------------- DevTools Toggle -------------
-  ipcMain.handle('window:devtools:toggle', (event: IpcMainInvokeEvent) => {
-    const senderWin = BrowserWindow.fromWebContents(event.sender);
-    if (senderWin) {
-      if (senderWin.webContents.isDevToolsOpened()) {
-        senderWin.webContents.closeDevTools();
+  ipcMain.handle('window:devtools:toggle', (event: IpcMainInvokeEvent, key?: WindowKey) => {
+    const targetWindow = key === undefined ? BrowserWindow.fromWebContents(event.sender) : windowManager.get(key);
+    if (targetWindow && !targetWindow.isDestroyed()) {
+      if (targetWindow.webContents.isDevToolsOpened()) {
+        targetWindow.webContents.closeDevTools();
       } else {
-        senderWin.webContents.openDevTools();
+        targetWindow.webContents.openDevTools();
       }
       return true;
     }
@@ -123,23 +124,27 @@ export function initIpcMain(win: BrowserWindow): void {
   });
 
   ipcMain.handle('window:move', (_: IpcMainInvokeEvent, position: { x: number; y: number }, key?: WindowKey) => {
-    let currentWin: BrowserWindow | null = win;
-    if (key) {
-      currentWin = windowManager.get(key);
+    let targetWindow: BrowserWindow | null = win;
+    if (key !== undefined) {
+      targetWindow = windowManager.get(key);
     }
-    if (!currentWin) return false;
+    if (!targetWindow || targetWindow.isDestroyed()) return false;
     if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return false;
-    currentWin.setPosition(Math.round(position.x), Math.round(position.y));
+    targetWindow.setPosition(Math.round(position.x), Math.round(position.y));
     return true;
   });
 
+  ipcMain.handle('window:center', (_: IpcMainInvokeEvent, key?: WindowKey) => {
+    return windowManager.center(key);
+  });
+
   ipcMain.handle('window:position:get', (_: IpcMainInvokeEvent, key?: WindowKey) => {
-    let currentWin: BrowserWindow | null = win;
-    if (key) {
-      currentWin = windowManager.get(key);
+    let targetWindow: BrowserWindow | null = win;
+    if (key !== undefined) {
+      targetWindow = windowManager.get(key);
     }
-    if (currentWin) {
-      return currentWin.getPosition();
+    if (targetWindow && !targetWindow.isDestroyed()) {
+      return targetWindow.getPosition();
     }
     return [0, 0];
   });
@@ -210,11 +215,11 @@ export function initIpcMain(win: BrowserWindow): void {
   });
 
   // ---------------- Generic window controls for the calling (sender) window --------------
-  ipcMain.handle('window:minimize', (event: IpcMainInvokeEvent) => {
+  ipcMain.handle('window:minimize', (event: IpcMainInvokeEvent, key?: WindowKey) => {
     try {
-      const browserWindow = BrowserWindow.fromWebContents(event.sender);
-      if (browserWindow && !browserWindow.isDestroyed()) {
-        browserWindow.minimize();
+      const targetWindow = key === undefined ? BrowserWindow.fromWebContents(event.sender) : windowManager.get(key);
+      if (targetWindow && !targetWindow.isDestroyed()) {
+        targetWindow.minimize();
         return true;
       }
     } catch {
@@ -223,13 +228,13 @@ export function initIpcMain(win: BrowserWindow): void {
     return false;
   });
 
-  ipcMain.handle('window:maximize', (event: IpcMainInvokeEvent) => {
+  ipcMain.handle('window:maximize', (event: IpcMainInvokeEvent, key?: WindowKey) => {
     try {
-      const browserWindow = BrowserWindow.fromWebContents(event.sender);
-      if (browserWindow && !browserWindow.isDestroyed()) {
-        if (browserWindow.isMaximized()) browserWindow.restore();
-        else browserWindow.maximize();
-        return { maximized: browserWindow.isMaximized() };
+      const targetWindow = key === undefined ? BrowserWindow.fromWebContents(event.sender) : windowManager.get(key);
+      if (targetWindow && !targetWindow.isDestroyed()) {
+        if (targetWindow.isMaximized()) targetWindow.restore();
+        else targetWindow.maximize();
+        return { maximized: targetWindow.isMaximized() };
       }
     } catch {
       //
@@ -250,11 +255,11 @@ export function initIpcMain(win: BrowserWindow): void {
     return false;
   });
 
-  ipcMain.handle('window:maximized:get', (event: IpcMainInvokeEvent) => {
+  ipcMain.handle('window:maximized:get', (event: IpcMainInvokeEvent, key?: WindowKey) => {
     try {
-      const browserWindow = BrowserWindow.fromWebContents(event.sender);
-      if (browserWindow && !browserWindow.isDestroyed()) {
-        return browserWindow.isMaximized();
+      const targetWindow = key === undefined ? BrowserWindow.fromWebContents(event.sender) : windowManager.get(key);
+      if (targetWindow && !targetWindow.isDestroyed()) {
+        return targetWindow.isMaximized();
       }
     } catch {
       //
@@ -262,13 +267,13 @@ export function initIpcMain(win: BrowserWindow): void {
     return false;
   });
 
-  ipcMain.handle('window:capabilities:get', (event: IpcMainInvokeEvent) => {
-    const browserWindow = BrowserWindow.fromWebContents(event.sender);
-    if (browserWindow && !browserWindow.isDestroyed()) {
+  ipcMain.handle('window:capabilities:get', (event: IpcMainInvokeEvent, key?: WindowKey) => {
+    const targetWindow = key === undefined ? BrowserWindow.fromWebContents(event.sender) : windowManager.get(key);
+    if (targetWindow && !targetWindow.isDestroyed()) {
       return {
-        minimizable: browserWindow.isMinimizable?.() ?? true,
-        maximizable: browserWindow.isMaximizable?.() ?? true,
-        resizable: browserWindow.isResizable?.() ?? true
+        minimizable: targetWindow.isMinimizable?.() ?? true,
+        maximizable: targetWindow.isMaximizable?.() ?? true,
+        resizable: targetWindow.isResizable?.() ?? true
       };
     }
     return { minimizable: false, maximizable: false, resizable: false };

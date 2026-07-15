@@ -9,6 +9,8 @@ type WindowIpcParams = {
    * 移动窗口
    */
   'window:move': IpcParams<[{ x: number; y: number }, WindowKey?], boolean>;
+  /** 将窗口移动到屏幕中央 */
+  'window:center': IpcParams<[WindowKey?], boolean>;
   'window:position:get': IpcParams<[WindowKey?], [number, number]>;
   'window:animation:play': IpcParams<[WindowKey, WindowAnimationTimeline], WindowAnimationPlaybackResult>;
   'window:animation:stop': IpcParams<[WindowKey, WindowAnimationStopOptions?], WindowAnimationPlaybackResult>;
@@ -23,13 +25,13 @@ type WindowIpcParams = {
    */
   'window:size:get': IpcParams<[string], { success: boolean; bounds?: { x: number; y: number; width: number; height: number }; error?: string }>;
   /**
-   * 设置窗口是否穿透点击
+   * 设置指定窗口是否穿透点击；未指定时保持现有行为，操作主窗口
    */
-  'window:click:through': IpcParams<[boolean], boolean>;
+  'window:click:through': IpcParams<[boolean, WindowKey?], boolean>;
   /**
-   * 切换调试窗口
+   * 切换指定窗口的调试工具；未指定时操作当前窗口
    */
-  'window:devtools:toggle': IpcParams<[void], boolean>;
+  'window:devtools:toggle': IpcParams<[WindowKey?], boolean>;
   'window:open': IpcParams<[WindowKey, any?, { sameDisplayAsSender?: boolean }?], boolean>;
   'window:open:ready': IpcParams<[WindowKey], boolean>;
   'window:payload:get': IpcParams<[WindowKey], any>;
@@ -38,17 +40,17 @@ type WindowIpcParams = {
   'window:shake': IpcParams<[WindowKey], boolean>;
   /** 发送消息给其他窗口 */
   'window:send': IpcParams<[WindowKey, string, any], boolean>;
-  /** 最小化当前窗口 */
-  'window:minimize': IpcParams<[void], boolean>;
-  /** 最大化或还原当前窗口 */
-  'window:maximize': IpcParams<[void], { maximized: boolean }>;
+  /** 最小化指定窗口；未指定时为当前窗口 */
+  'window:minimize': IpcParams<[WindowKey?], boolean>;
+  /** 最大化或还原指定窗口；未指定时为当前窗口 */
+  'window:maximize': IpcParams<[WindowKey?], { maximized: boolean }>;
   /** 关闭当前窗口 */
   'window:close:self': IpcParams<[void], boolean>;
-  /** 当前窗口是否已最大化 */
-  'window:maximized:get': IpcParams<[void], boolean>;
-  /** 当前窗口能力（是否允许最小化/最大化/缩放） */
-  'window:capabilities:get': IpcParams<[void], { minimizable: boolean; maximizable: boolean; resizable: boolean }>;
-  /** 保存窗口状态 */
+  /** 指定窗口是否已最大化；未指定时为当前窗口 */
+  'window:maximized:get': IpcParams<[WindowKey?], boolean>;
+  /** 指定窗口能力；未指定时为当前窗口 */
+  'window:capabilities:get': IpcParams<[WindowKey?], { minimizable: boolean; maximizable: boolean; resizable: boolean }>;
+  /** 保存当前窗口状态 */
   'window:state:save': IpcParams<[WindowKey], boolean>;
   /** 获取窗口状态 */
   'window:state:get': IpcParams<[WindowKey], WindowState | undefined>;
@@ -66,6 +68,7 @@ type WindowIpcParams = {
 
 const methods: Array<keyof WindowIpcParams> = [
   'window:move',
+  'window:center',
   'window:position:get',
   'window:animation:play',
   'window:animation:stop',

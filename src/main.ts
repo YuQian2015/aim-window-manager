@@ -773,6 +773,22 @@ export class WindowManager {
     return w && !w.isDestroyed() ? w : null;
   }
 
+  /**
+   * Move the main window, or a managed window, to the center of its screen.
+   */
+  center(key?: WindowKey): boolean {
+    const targetKey: WindowKey = key === undefined ? 'main' : key;
+    const w = this.get(targetKey);
+    if (!w || w.isDestroyed()) return false;
+    try {
+      w.center();
+      return true;
+    } catch (error) {
+      console.error(`Failed to center window '${String(targetKey)}':`, error);
+      return false;
+    }
+  }
+
   async createOrShow(
     key: WindowKey,
     payload?: any,
